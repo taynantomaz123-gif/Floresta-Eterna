@@ -1901,24 +1901,37 @@ function coopBlocked(){let inFrame=false;try{inFrame=window.top!==window.self}ca
  return''}
 function coopSt(t,err){const el=$('coopSt');if(el){el.textContent=t;el.classList.toggle('err',!!err)}}
 function netSend(o,unrel){if(!NET.open)return;const ch=unrel&&NET.du&&NET.du.readyState==='open'?NET.du:NET.dc;if(!ch||ch.readyState!=='open')return;try{ch.send(o.t==='s'||o.t==='i'?JSON.stringify(o,(k,v)=>typeof v==='number'?Math.round(v*10)/10:v):JSON.stringify(o))}catch(e){}}
-function netClose(){clearInterval(NET.hb);clearTimeout(NET.to);NET.hb=null;
+function netClose(){clearInterval(NET.hb);clearTimeout(NET.to);clearTimeout(NET.rt);NET.hb=null;
  try{NET.ws&&NET.ws.close()}catch(e){}try{NET.dc&&NET.dc.close()}catch(e){}try{NET.du&&NET.du.close()}catch(e){}try{NET.pc&&NET.pc.close()}catch(e){}
  Object.assign(NET,{ws:null,pc:null,dc:null,du:null,role:null,peer:null,open:false,partner:null,peerReady:false,go:false,evB:null,evS:null,qc:[],meHi:false})}
 function sigSend(type,payload){if(NET.ws&&NET.ws.readyState===1)NET.ws.send(JSON.stringify({type,payload,dst:NET.peer}))}
 function sigOpen(id,onOpen,onTaken){
  let ws;try{ws=new WebSocket(SIG_URL+'&id='+encodeURIComponent(id)+'&token='+Math.random().toString(36).slice(2)+'&version=1.5.4')}catch(e){coopSt('Não consegui acessar a internet. Verifique sua conexão.',true);return}
- NET.ws=ws;let opened=false;
+ NET.ws=ws;let opened=false,errMsg='';
+ ws.onopen=()=>{try{ws.send('{"type":"HEARTBEAT"}')}catch(e){}};
  ws.onmessage=ev=>{let m;try{m=JSON.parse(ev.data)}catch(e){return}
-  if(m.type==='OPEN'){opened=true;onOpen()}
+  if(m.type==='OPEN'){opened=true;NET.retry=0;onOpen()}
   else if(m.type==='ID-TAKEN'){ws.onclose=null;try{ws.close()}catch(e){}onTaken()}
-  else if(m.type==='ERROR'||m.type==='INVALID-KEY'){coopSt('O servidor de salas recusou a conexão. Tente de novo em instantes.',true)}
+  else if(m.type==='ERROR'||m.type==='INVALID-KEY'){errMsg=(m.payload&&m.payload.msg)||m.type;coopSt('O servidor de salas respondeu: '+errMsg,true)}
   else sigMsg(m)};
- ws.onerror=()=>{if(!opened)coopSt('Não consegui conectar ao servidor de salas. Verifique a internet.',true)};
- ws.onclose=()=>{if(!NET.open&&opened&&NET.ws===ws)coopSt('A conexão com o servidor caiu. Toque em PRONTO de novo.',true)};
- clearInterval(NET.hb);NET.hb=setInterval(()=>{if(NET.ws&&NET.ws.readyState===1)NET.ws.send('{"type":"HEARTBEAT"}')},5000);
+ ws.onerror=()=>{};
+ ws.onclose=ev=>{if(NET.ws!==ws||NET.open)return;sigRetry(opened?'A conexão com o servidor caiu':'Não consegui conectar ao servidor de salas',errMsg,ev&&ev.code)};
+ clearInterval(NET.hb);NET.hb=setInterval(()=>{if(NET.ws&&NET.ws.readyState===1)try{NET.ws.send('{"type":"HEARTBEAT"}')}catch(e){}},4000);
 }
-function coopConnect(code){
- netClose();NET.code=code;coopSt('Conectando ao servidor...');
+// reconecta sozinho (até 6 vezes) se a conexão com o servidor de salas cair enquanto espera o amigo
+function sigRetry(why,errMsg,code){
+ if(NET.open||!NET.code)return;
+ NET.retry=(NET.retry||0)+1;
+ if(NET.retry>6){coopSt(why+'.'+(errMsg?' ('+errMsg+')':'')+(code?' [código '+code+']':'')+' Confira a internet e toque em PRONTO de novo.',true);return}
+ coopSt(why+'. Tentando de novo ('+NET.retry+'/6)...',false);
+ clearTimeout(NET.rt);NET.rt=setTimeout(()=>{if(NET.open||!NET.code||$('coopOv').classList.contains('hide'))return;const room=NET.code,r=NET.retry,host=NET.role==='host';
+  try{NET.pc&&NET.pc.close()}catch(e){}NET.pc=null;NET.dc=null;NET.du=null;NET.qc=[];NET.peer=null;
+  if(host)sigOpen(roomId(room),()=>{NET.role='host';coopSt('Sala '+room+' criada! Agora seu amigo digita '+room+' e toca em PRONTO.')},()=>{NET.ws=null;sigRetry('O servidor ainda está liberando a sala','',0)});
+  else coopConnect(room,r)},NET.retry<3?1500:3000);
+}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&NET.code&&!NET.open&&!$('coopOv').classList.contains('hide')&&(!NET.ws||NET.ws.readyState>1)){NET.retry=0;sigRetry('Reconectando','',0)}});
+function coopConnect(code,retry){
+ netClose();NET.code=code;NET.retry=retry||0;coopSt(retry?'Reconectando ao servidor...':'Conectando ao servidor...');
  {const bl=coopBlocked();if(bl){coopSt(bl,true);return}}
  const rid=roomId(code);
  sigOpen(rid,()=>{NET.role='host';coopSt('Sala '+code+' criada! Agora seu amigo digita '+code+' e toca em PRONTO.')},
@@ -2091,7 +2104,7 @@ $('coopBtn').onclick=coopOpen;
 $('coopGen').onclick=()=>{$('coopCode').value=genCode();sfx('card')};
 $('coopCode').addEventListener('input',()=>{const el=$('coopCode');el.value=el.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,6)});
 $('coopGo').onclick=()=>{const c=$('coopCode').value.trim().toUpperCase();if(c.length<3){coopSt('O código precisa ter pelo menos 3 letras ou números.',true);return}sfx('card');coopConnect(c)};
-$('coopBack').onclick=()=>{netClose();hide(['coopOv'])};
+$('coopBack').onclick=()=>{netClose();NET.code='';hide(['coopOv'])};
 
 /* =================== LOADING SCREEN =================== */
 const LD_TIPS=['Afiando as espadas...','Acordando os slimes...','Acendendo os cogumelos mágicos...','Plantando a floresta...','Gravando as runas da barreira...','Chamando os vaga-lumes...','Polindo as armaduras...','Preparando as cartas...'];

@@ -428,6 +428,8 @@ const buzz=ms=>{if(save.novib)return;try{navigator.vibrate&&navigator.vibrate(ms
 const IS_APP=/; wv\)/.test(navigator.userAgent)||/FlorestaEternaApp/.test(navigator.userAgent);
 // Resolução adaptativa: em celulares com processador/GPU mais fraco (ex.: Samsung A05s) baixa a resolução aos poucos se o jogo ficar lento
 let DYN_CAP=0,dynT=0,dynN=0,dynCool=0;
+// PC (Windows/Mac/Linux, mouse e teclado): mostra os comandos de teclado
+const IS_PC=/FlorestaEternaPC/.test(navigator.userAgent)||(!/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent)&&!('ontouchstart' in window));
 const LOW_MEM=(navigator.deviceMemory&&navigator.deviceMemory<=2)||(navigator.hardwareConcurrency&&navigator.hardwareConcurrency<=4&&/Android [4-8]\b/.test(navigator.userAgent));
 const GQ=IS_APP?.5:1;
 const ground=document.createElement('canvas');ground.width=GS*GQ;ground.height=GS*GQ;
@@ -1602,7 +1604,7 @@ function drawHUD(){
  // joystick
  if(joy&&joy.active){ctx.globalAlpha=.5;ctx.fillStyle='rgba(0,0,0,.35)';ctx.beginPath();ctx.arc(joy.ox,joy.oy,55,0,TAU);ctx.fill();ctx.strokeStyle='rgba(255,255,255,.6)';ctx.lineWidth=3;ctx.stroke();
   const dx=joy.x-joy.ox,dy=joy.y-joy.oy,l=Math.hypot(dx,dy),m=Math.min(l,50),kx=joy.ox+(l?dx/l*m:0),ky=joy.oy+(l?dy/l*m:0);ctx.globalAlpha=.85;ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(kx,ky,24,0,TAU);ctx.fill();ctx.globalAlpha=1}
- else if(run.wave===1&&run.phase!=='clear'&&perfNow%2<1.4){ctx.textAlign='center';ctx.font=`800 ${14*s}px system-ui,sans-serif`;ctx.fillStyle='rgba(255,255,255,.75)';ctx.fillText('Arraste o dedo na tela para andar • o ataque é automático',W/2,H-130);ctx.textAlign='left'}
+ else if(run.wave===1&&run.phase!=='clear'&&perfNow%2<1.4){ctx.textAlign='center';ctx.font=`800 ${14*s}px system-ui,sans-serif`;ctx.fillStyle='rgba(255,255,255,.75)';ctx.fillText(IS_PC?'WASD ou setas para andar • Espaço = habilidade • Esc = pausa':'Arraste o dedo na tela para andar • o ataque é automático',W/2,H-130);ctx.textAlign='left'}
  // ability cooldown
  const ab=$('abil');const cd=P.abCd,tot=P.cls.ab.cd*P.cdMult;
  if(cd>0){$('abMask').style.background=`conic-gradient(rgba(0,0,0,.65) ${cd/tot*360}deg,transparent 0)`;$('abTxt').textContent=Math.ceil(cd);ab.classList.remove('ready')}
@@ -1892,7 +1894,6 @@ function step(dt){
 /* =================== MODO COM AMIGO (online por código) =================== */
 var NET={ws:null,pc:null,dc:null,du:null,role:null,code:'',peer:null,hb:null,open:false,partner:null,peerReady:false,go:false,evB:null,evS:null,snapT:0,inT:0,qc:[],to:null,lastSnap:0,meHi:false};
 const ICE_CFG={iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:['turn:eu-0.turn.peerjs.com:3478','turn:us-0.turn.peerjs.com:3478'],username:'peerjs',credential:'peerjsp'}]};
-const SIG_URL='wss://0.peerjs.com:443/peerjs?key=peerjs';
 const CODE_CH='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 function roomId(c){return 'florestaeterna-v1-'+c.toLowerCase()}
 function coopBlocked(){let inFrame=false;try{inFrame=window.top!==window.self}catch(e){inFrame=true}
@@ -1901,47 +1902,74 @@ function coopBlocked(){let inFrame=false;try{inFrame=window.top!==window.self}ca
  return''}
 function coopSt(t,err){const el=$('coopSt');if(el){el.textContent=t;el.classList.toggle('err',!!err)}}
 function netSend(o,unrel){if(!NET.open)return;const ch=unrel&&NET.du&&NET.du.readyState==='open'?NET.du:NET.dc;if(!ch||ch.readyState!=='open')return;try{ch.send(o.t==='s'||o.t==='i'?JSON.stringify(o,(k,v)=>typeof v==='number'?Math.round(v*10)/10:v):JSON.stringify(o))}catch(e){}}
-function netClose(){clearInterval(NET.hb);clearTimeout(NET.to);clearTimeout(NET.rt);NET.hb=null;
+function netClose(){clearInterval(NET.hb);clearTimeout(NET.to);clearTimeout(NET.rt);clearTimeout(NET.sigTo);NET.hb=null;(NET.brokers||[]).forEach(B=>B.close());NET.brokers=[];
  try{NET.ws&&NET.ws.close()}catch(e){}try{NET.dc&&NET.dc.close()}catch(e){}try{NET.du&&NET.du.close()}catch(e){}try{NET.pc&&NET.pc.close()}catch(e){}
  Object.assign(NET,{ws:null,pc:null,dc:null,du:null,role:null,peer:null,open:false,partner:null,peerReady:false,go:false,evB:null,evS:null,qc:[],meHi:false})}
-function sigSend(type,payload){if(NET.ws&&NET.ws.readyState===1)NET.ws.send(JSON.stringify({type,payload,dst:NET.peer}))}
-function sigOpen(id,onOpen,onTaken){
- let ws;try{ws=new WebSocket(SIG_URL+'&id='+encodeURIComponent(id)+'&token='+Math.random().toString(36).slice(2)+'&version=1.5.4')}catch(e){coopSt('Não consegui acessar a internet. Verifique sua conexão.',true);return}
- NET.ws=ws;let opened=false,errMsg='';
- ws.onopen=()=>{try{ws.send('{"type":"HEARTBEAT"}')}catch(e){}};
- ws.onmessage=ev=>{let m;try{m=JSON.parse(ev.data)}catch(e){return}
-  if(m.type==='OPEN'){opened=true;NET.retry=0;onOpen()}
-  else if(m.type==='ID-TAKEN'){ws.onclose=null;try{ws.close()}catch(e){}onTaken()}
-  else if(m.type==='ERROR'||m.type==='INVALID-KEY'){errMsg=(m.payload&&m.payload.msg)||m.type;coopSt('O servidor de salas respondeu: '+errMsg,true)}
-  else sigMsg(m)};
- ws.onerror=()=>{};
- ws.onclose=ev=>{if(NET.ws!==ws||NET.open)return;sigRetry(opened?'A conexão com o servidor caiu':'Não consegui conectar ao servidor de salas',errMsg,ev&&ev.code)};
- clearInterval(NET.hb);NET.hb=setInterval(()=>{if(NET.ws&&NET.ws.readyState===1)try{NET.ws.send('{"type":"HEARTBEAT"}')}catch(e){}},4000);
+// Salas pela internet: usa 3 servidores públicos e gratuitos (MQTT por WebSocket) AO MESMO TEMPO.
+// Se um cair, os outros continuam. Os celulares se encontram pelo código e depois se ligam direto (WebRTC).
+const SIG_BROKERS=['wss://broker.emqx.io:8084/mqtt','wss://broker.hivemq.com:8884/mqtt','wss://test.mosquitto.org:8081/mqtt'];
+function mqStr(s){const b=new TextEncoder().encode(s);return[b.length>>8,b.length&255,...b]}
+function mqPkt(type,body){const len=[];let n=body.length;do{let d=n%128;n=Math.floor(n/128);if(n>0)d|=128;len.push(d)}while(n>0);return new Uint8Array([type,...len,...body])}
+function mqOpen(url){
+ const B={url,ws:null,ok:false,buf:new Uint8Array(0),ping:null,tries:0,dead:false};NET.brokers.push(B);
+ const connect=()=>{
+  if(B.dead||NET.open||!NET.code)return;
+  let ws;try{ws=new WebSocket(url,'mqtt')}catch(e){retry();return}
+  B.ws=ws;ws.binaryType='arraybuffer';
+  ws.onopen=()=>{const id='fe'+NET.myId+Math.random().toString(36).slice(2,6);
+   ws.send(mqPkt(0x10,[...mqStr('MQTT'),4,2,0,30,...mqStr(id)]))};
+  ws.onmessage=ev=>{const d=new Uint8Array(ev.data);const nb=new Uint8Array(B.buf.length+d.length);nb.set(B.buf);nb.set(d,B.buf.length);B.buf=nb;mqParse(B)};
+  ws.onerror=()=>{};
+  ws.onclose=()=>{if(B.ws!==ws)return;B.ok=false;clearInterval(B.ping);sigUpdate();retry()};
+ };
+ const retry=()=>{if(B.dead||NET.open||!NET.code)return;B.tries++;clearTimeout(B.rt);B.rt=setTimeout(connect,Math.min(8000,1000*B.tries))};
+ B.close=()=>{B.dead=true;clearTimeout(B.rt);clearInterval(B.ping);try{B.ws&&B.ws.close()}catch(e){}};
+ connect();
 }
-// reconecta sozinho (até 6 vezes) se a conexão com o servidor de salas cair enquanto espera o amigo
-function sigRetry(why,errMsg,code){
- if(NET.open||!NET.code)return;
- NET.retry=(NET.retry||0)+1;
- if(NET.retry>6){coopSt(why+'.'+(errMsg?' ('+errMsg+')':'')+(code?' [código '+code+']':'')+' Confira a internet e toque em PRONTO de novo.',true);return}
- coopSt(why+'. Tentando de novo ('+NET.retry+'/6)...',false);
- clearTimeout(NET.rt);NET.rt=setTimeout(()=>{if(NET.open||!NET.code||$('coopOv').classList.contains('hide'))return;const room=NET.code,r=NET.retry,host=NET.role==='host';
-  try{NET.pc&&NET.pc.close()}catch(e){}NET.pc=null;NET.dc=null;NET.du=null;NET.qc=[];NET.peer=null;
-  if(host)sigOpen(roomId(room),()=>{NET.role='host';coopSt('Sala '+room+' criada! Agora seu amigo digita '+room+' e toca em PRONTO.')},()=>{NET.ws=null;sigRetry('O servidor ainda está liberando a sala','',0)});
-  else coopConnect(room,r)},NET.retry<3?1500:3000);
+function mqParse(B){
+ for(;;){const b=B.buf;if(b.length<2)return;let mul=1,len=0,i=1,d;do{if(i>=b.length)return;d=b[i++];len+=(d&127)*mul;mul*=128}while(d&128);
+  if(b.length<i+len)return;const type=b[0]>>4,body=b.slice(i,i+len);B.buf=b.slice(i+len);
+  if(type===2){if(body[1]===0){B.ok=true;B.tries=0;const t=mqStr(NET.topic);B.ws.send(mqPkt(0x82,[0,1,...t,0]));clearInterval(B.ping);B.ping=setInterval(()=>{try{B.ws.readyState===1&&B.ws.send(new Uint8Array([0xC0,0]))}catch(e){}},15000);sigUpdate();sigHello()}}
+  else if(type===3){const tl=(body[0]<<8)|body[1],qos=(b[0]>>1)&3,off=2+tl+(qos?2:0);try{sigRecv(JSON.parse(new TextDecoder().decode(body.slice(off))))}catch(e){}}
+ }
 }
-document.addEventListener('visibilitychange',()=>{if(!document.hidden&&NET.code&&!NET.open&&!$('coopOv').classList.contains('hide')&&(!NET.ws||NET.ws.readyState>1)){NET.retry=0;sigRetry('Reconectando','',0)}});
-function coopConnect(code,retry){
- netClose();NET.code=code;NET.retry=retry||0;coopSt(retry?'Reconectando ao servidor...':'Conectando ao servidor...');
+function sigPub(o){o.from=NET.myId;o.mid=Math.random().toString(36).slice(2,10);const s=JSON.stringify(o),t=mqStr(NET.topic),p=new TextEncoder().encode(s);const pk=mqPkt(0x30,[...t,...p]);
+ for(const B of NET.brokers)if(B.ok&&B.ws&&B.ws.readyState===1)try{B.ws.send(pk)}catch(e){}}
+function sigSend(type,payload){sigPub({t:type,p:payload,to:NET.peer})}
+function sigHello(){if(!NET.open&&NET.code)sigPub({t:'hello'})}
+function sigUpdate(){if(NET.open)return;const n=NET.brokers.filter(B=>B.ok).length;
+ if(NET.peer)return;
+ if(n>0)coopSt('Sala '+NET.code+' aberta! Esperando seu amigo digitar '+NET.code+' e tocar em PRONTO...');
+ else coopSt(NET.everOk?'Conexão com a internet instável. Tentando de novo...':'Conectando aos servidores de sala...',false);
+ if(n>0)NET.everOk=true;
+ clearTimeout(NET.sigTo);if(!n)NET.sigTo=setTimeout(()=>{if(!NET.open&&NET.code&&!NET.brokers.some(B=>B.ok))coopSt('Não consegui acessar os servidores de sala. Confira a internet (Wi-Fi ou dados) e toque em PRONTO de novo.',true)},20000);
+}
+function sigRecv(m){
+ if(!m||m.from===NET.myId||NET.open)return;
+ if(NET.seen[m.mid])return;NET.seen[m.mid]=1;
+ if(m.to&&m.to!==NET.myId)return;
+ if(m.t==='hello'){
+  if(NET.peer&&NET.peer!==m.from)return;
+  if(!NET.peer){NET.peer=m.from;NET.role=NET.myId<m.from?'host':'guest';sigPub({t:'hello',to:m.from});
+   coopSt('Seu amigo entrou na sala! Conectando...');if(NET.role==='guest')guestOffer()}
+  return}
+ if(m.from!==NET.peer)return;
+ sigMsg({type:m.t,payload:m.p,src:m.from});
+}
+function coopConnect(code){
+ netClose();
  {const bl=coopBlocked();if(bl){coopSt(bl,true);return}}
- const rid=roomId(code);
- sigOpen(rid,()=>{NET.role='host';coopSt('Sala '+code+' criada! Agora seu amigo digita '+code+' e toca em PRONTO.')},
-  ()=>{const myId=rid+'-'+Math.random().toString(36).slice(2,8);
-   sigOpen(myId,()=>{NET.role='guest';NET.peer=rid;coopSt('Sala encontrada! Conectando com seu amigo...');guestOffer()},()=>coopSt('Tente de novo.',true))});
+ if(!window.TextEncoder){coopSt('Este aparelho não suporta o modo online. Atualize o Android System WebView.',true);return}
+ NET.code=code;NET.topic='florestaeterna/v2/sala/'+code.toLowerCase();NET.myId=Math.random().toString(36).slice(2,10);NET.seen={};NET.brokers=[];NET.everOk=false;
+ coopSt('Conectando aos servidores de sala...');
+ SIG_BROKERS.forEach(mqOpen);
+ clearInterval(NET.hb);NET.hb=setInterval(sigHello,1500);
 }
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&NET.code&&!NET.open&&!$('coopOv').classList.contains('hide')){for(const B of NET.brokers)if(!B.ok&&B.ws&&B.ws.readyState>1){B.tries=0}sigHello()}});
 function newPC(){
  const pc=new RTCPeerConnection(ICE_CFG);NET.pc=pc;
  pc.onicecandidate=e=>{if(e.candidate)sigSend('CANDIDATE',{candidate:e.candidate,type:'data',connectionId:'fe1'})};
- pc.onconnectionstatechange=()=>{const st=pc.connectionState;if(st==='failed'){if(!NET.open)coopSt('Não deu para conectar com seu amigo pela internet. Tentem os dois no mesmo Wi-Fi ou tentem de novo.',true);else netLost()}};
+ pc.onconnectionstatechange=()=>{const st=pc.connectionState;if(st==='failed'){if(NET.open)netLost()}};
  return pc;
 }
 function bindDC(ch){
@@ -1951,16 +1979,17 @@ function bindDC(ch){
  ch.onclose=()=>{if(ch===NET.dc&&NET.open)netLost()};
  if(ch.readyState==='open')ch.onopen();
 }
-async function guestOffer(){
+async function guestOffer(n){
+ n=n||1;NET.qc=[];try{NET.pc&&NET.pc.close()}catch(e){}
  const pc=newPC();bindDC(pc.createDataChannel('c'));bindDC(pc.createDataChannel('u',{ordered:false,maxRetransmits:0}));
  try{const o=await pc.createOffer();await pc.setLocalDescription(o);sigSend('OFFER',{sdp:pc.localDescription,type:'data',connectionId:'fe1'})}catch(e){coopSt('Erro ao conectar: '+e.message,true)}
- clearTimeout(NET.to);NET.to=setTimeout(()=>{if(!NET.open)coopSt('Demorou demais para conectar. Confiram a internet e toquem em PRONTO de novo.',true)},25000);
+ clearTimeout(NET.to);NET.to=setTimeout(()=>{if(NET.open)return;if(n<3){coopSt('Ainda conectando com seu amigo... (tentativa '+(n+1)+'/3)');guestOffer(n+1)}else coopSt('Não deu para ligar os dois celulares. Tentem trocar de rede (Wi-Fi ↔ dados móveis) e toquem em PRONTO de novo.',true)},15000);
 }
 async function sigMsg(m){
  const p=m.payload||{};
  try{
   if(m.type==='OFFER'&&NET.role==='host'){
-   if(NET.pc){return}
+   if(NET.pc){if(NET.pc.connectionState==='connected')return;try{NET.pc.close()}catch(e){}NET.pc=null;NET.qc=[]}
    NET.peer=m.src;coopSt('Seu amigo entrou! Conectando...');
    const pc=newPC();pc.ondatachannel=e=>bindDC(e.channel);
    await pc.setRemoteDescription(p.sdp);const a=await pc.createAnswer();await pc.setLocalDescription(a);
@@ -1974,7 +2003,7 @@ async function sigMsg(m){
  }catch(e){console.warn(e)}
 }
 function myInfo(){return{t:'hi',cls:save.sel,name:(clsById(save.sel)||CLASSES[0]).name,ext:{lamina:eq('lamina'),armadura:eq('armadura'),botas:eq('botas'),bolsa:eq('bolsa'),L:accLevel().l-1},D:NET.role==='host'?(save.diff&&save.best>=10?{hp:1.5,dmg:1.3,gold:1.5,hard:1}:{hp:1,dmg:1,gold:1,hard:0}):null}}
-function netReady(){if(NET.open)return;NET.open=true;clearTimeout(NET.to);try{NET.ws&&NET.ws.close()}catch(e){}NET.ws=null;clearInterval(NET.hb);
+function netReady(){if(NET.open)return;NET.open=true;clearTimeout(NET.to);clearTimeout(NET.sigTo);clearInterval(NET.hb);setTimeout(()=>{(NET.brokers||[]).forEach(B=>B.close());NET.brokers=[]},1500);
  coopSt('Conectado! Preparando a partida...');netSend(myInfo());NET.meHi=true;if(NET.partner)coopLoad()}
 function netLost(){
  if(!NET.open)return;const wasRun=run&&run.coop&&(mode==='play'||mode==='pause'||mode==='cards');const role=NET.role;netClose();
